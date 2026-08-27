@@ -108,6 +108,11 @@ button:disabled { cursor: not-allowed; opacity: .46; }
 .result.is-error { border-color: #e3bbae; background: #fff2ed; }
 .result.is-error > span { background: #9e4833; }
 .finder-button { margin-top: 14px; border: 0; border-radius: 8px; padding: 8px 11px; color: white; background: var(--green); cursor: pointer; font-size: 9.5px; font-weight: 800; }
+.cost-summary { display: flex; gap: 8px; margin-top: 14px; }
+.cost-summary > span { min-width: 145px; padding: 9px 11px; border: 1px solid #d3d9cf; border-radius: 9px; background: #fffefa; }
+.cost-summary small, .cost-summary strong { display: block; }
+.cost-summary small { margin-bottom: 3px; color: var(--muted); font-size: 8px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
+.cost-summary strong { color: var(--green); font-family: ui-monospace, "SF Mono", monospace; font-size: 11px; }
 
 .run-bar { min-height: 86px; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 18px 30px; border-top: 1px solid var(--line); background: #efeee6; }
 .destination { display: flex; align-items: center; gap: 11px; }
@@ -116,6 +121,11 @@ button:disabled { cursor: not-allowed; opacity: .46; }
 .destination small { margin-bottom: 3px; color: var(--muted); font-size: 9px; font-weight: 750; letter-spacing: .1em; text-transform: uppercase; }
 .destination strong { font-family: ui-monospace, "SF Mono", monospace; font-size: 10px; font-weight: 650; }
 .destination .cleanup-note { margin-top: 4px; color: var(--green); font-size: 9px; letter-spacing: 0; text-transform: none; }
+.cost-estimate { flex: 0 0 auto; min-width: 150px; padding: 8px 11px; border: 1px solid #d4d9ce; border-radius: 10px; background: #f8f7f0; }
+.cost-estimate small, .cost-estimate strong, .cost-estimate em { display: block; }
+.cost-estimate small { margin-bottom: 3px; color: var(--muted); font-size: 8px; font-weight: 760; letter-spacing: .08em; text-transform: uppercase; }
+.cost-estimate strong { color: var(--green); font-family: ui-monospace, "SF Mono", monospace; font-size: 11px; }
+.cost-estimate em { margin-top: 3px; color: var(--muted); font-size: 8px; font-style: normal; }
 .primary-button, .cancel-button { min-width: 245px; min-height: 47px; border: 0; border-radius: 12px; padding: 0 22px; cursor: pointer; font-size: 11px; font-weight: 820; }
 .primary-button { color: white; background: var(--green); box-shadow: 0 4px 0 var(--green-dark); }
 .primary-button:hover:not(:disabled) { background: #24685a; transform: translateY(-1px); }
@@ -135,6 +145,10 @@ footer { max-width: 1080px; margin: 0 auto; padding: 0 20px 35px; display: flex;
 .privacy-note { padding: 12px 13px; border-radius: 10px; color: var(--muted); background: #eef3ec; font-size: 10px; line-height: 1.5; }
 .privacy-note strong { color: var(--green); }
 .privacy-note p { margin: 4px 0 0; }
+.pricing-note { padding: 12px 13px; border: 1px solid #e0d7c7; border-radius: 10px; color: var(--muted); background: #faf6ed; font-size: 10px; line-height: 1.5; }
+.pricing-note strong { color: var(--ink); }
+.pricing-note p { margin: 4px 0 0; }
+.pricing-note a { color: var(--green); font-weight: 750; }
 .settings-message { margin: -4px 0 0; padding: 9px 11px; border-radius: 8px; color: var(--green); background: #eef3ec; font-size: 10px; font-weight: 700; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 10px; padding-top: 4px; }
 .modal-actions .primary-button { min-width: 150px; min-height: 42px; }
@@ -157,6 +171,7 @@ footer { max-width: 1080px; margin: 0 auto; padding: 0 20px 35px; display: flex;
   .drop-zone { grid-template-columns: auto 1fr; }
   .drop-zone .secondary-button { grid-column: 1 / -1; }
   .run-bar { align-items: stretch; flex-direction: column; padding: 19px 20px 23px; }
+  .cost-estimate { width: 100%; }
   .primary-button, .cancel-button { width: 100%; }
   footer { flex-direction: column; gap: 7px; text-align: center; }
   .modal-actions { flex-direction: column-reverse; }

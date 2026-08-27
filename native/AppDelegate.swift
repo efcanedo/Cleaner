@@ -11,7 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var readinessAttempts = 0
     private let appURL = URL(string: "http://127.0.0.1:41842/")!
     private let healthURL = URL(string: "http://127.0.0.1:41842/api/health")!
-    private let logURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/Document Cleaner 1.0.log")
+    private let logURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/Document Cleaner 1.1.log")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -31,8 +31,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func configureMenuBar() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem.button?.title = "✓ 1.0"
-        statusItem.button?.toolTip = "Document Cleaner 1.0"
+        statusItem.button?.title = "✓ 1.1"
+        statusItem.button?.toolTip = "Document Cleaner 1.1"
         let menu = NSMenu()
         let open = NSMenuItem(title: "Open Document Cleaner", action: #selector(openInterface), keyEquivalent: "o")
         open.target = self
@@ -104,7 +104,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let alert = NSAlert()
         alert.alertStyle = .critical
         alert.messageText = "Document Cleaner could not start"
-        alert.informativeText = "Quit the app from the menu bar and open it again. If the problem continues, inspect Document Cleaner 1.0.log in Library/Logs."
+        alert.informativeText = "Quit the app from the menu bar and open it again. If the problem continues, inspect Document Cleaner 1.1.log in Library/Logs."
         alert.runModal()
     }
 }

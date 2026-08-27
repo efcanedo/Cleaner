@@ -7,11 +7,12 @@ import crypto from 'node:crypto';
 import Busboy from 'busboy';
 import { processJob } from './pipeline.mjs';
 import { testOpenAIKey } from './openai.mjs';
+import { estimateJobCost, MODEL_PRICING, PRICING_SOURCE, PRICING_UPDATED_AT } from './pricing.mjs';
 import {
   SETTINGS_FILE, WORK_ROOT, ensureDir, exists, readJSON, removeWorkDirectory, runCommand, safeFilename, writeTextAtomic,
 } from './utils.mjs';
 
-const VERSION = '1.0';
+const VERSION = '1.1';
 const PORT = Number(process.env.DOCUMENT_CLEANER_PORT || 41842);
 const HOST = '127.0.0.1';
 const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
@@ -85,7 +86,10 @@ async function keychainWrite(apiKey) {
 
 async function settingsResponse() {
   const current = await settings();
-  return { ...current, hasKey: Boolean(await keychainRead()), toolkitAvailable: await exists(toolkit), version: VERSION };
+  return {
+    ...current, hasKey: Boolean(await keychainRead()), toolkitAvailable: await exists(toolkit), version: VERSION,
+    pricing: { models: MODEL_PRICING, updatedAt: PRICING_UPDATED_AT, source: PRICING_SOURCE },
+  };
 }
 
 function publicJob(job) {
@@ -93,6 +97,8 @@ function publicJob(job) {
     id: job.id, path: job.path, status: job.status, stage: job.stage, progress: job.progress,
     totalFiles: job.totalFiles, completedFiles: job.completedFiles, createdAt: job.createdAt,
     ...(job.destination ? { destination: job.destination } : {}), results: job.results,
+    ...(job.estimatedCost ? { estimatedCost: job.estimatedCost } : {}),
+    actualCostUSD: Number(job.actualCostUSD || 0),
     ...(job.error ? { error: job.error } : {}),
   };
 }
@@ -165,10 +171,17 @@ async function startJob(request, response, origin) {
     const apiKey = await keychainRead();
     if (!apiKey) throw new Error('Add an OpenAI API key in Settings before cleaning.');
     const currentSettings = await settings();
+    const fileMetadata = await Promise.all(upload.files.map(async (file) => ({
+      name: file.originalName,
+      size: (await stat(file.path)).size,
+      type: file.mimeType,
+    })));
+    const estimatedCost = estimateJobCost(upload.fields.path, fileMetadata, currentSettings.model);
     const job = {
       id, path: upload.fields.path, status: 'queued', stage: 'Queued', progress: 0,
       totalFiles: upload.files.length, completedFiles: 0, createdAt: new Date().toISOString(), results: [],
       cancelRequested: false, abortController: new AbortController(),
+      estimatedCost, actualCostUSD: 0,
     };
     jobs.set(id, job);
     json(response, 202, publicJob(job), origin);
@@ -224,6 +237,22 @@ const server = http.createServer(async (request, response) => {
       const current = await settings();
       const model = await testOpenAIKey(apiKey, current.model);
       json(response, 200, { ok: true, message: `Connection successful. ${model} is available.` }, origin);
+      return;
+    }
+    if (request.method === 'POST' && url.pathname === '/api/estimate') {
+      const body = await bodyJSON(request);
+      if (!allowedPaths.has(body.path)) throw new Error('Select a valid cleaning path.');
+      if (!Array.isArray(body.files) || body.files.length > 500) throw new Error('Supply valid file metadata.');
+      const current = await settings();
+      const files = body.files.map((file) => {
+        const suppliedSize = Number(file.size || 0);
+        return {
+          name: safeFilename(path.basename(String(file.name || 'source'))),
+          size: Number.isFinite(suppliedSize) ? Math.max(0, Math.min(suppliedSize, 750 * 1024 * 1024)) : 0,
+          type: String(file.type || ''),
+        };
+      });
+      json(response, 200, estimateJobCost(body.path, files, current.model), origin);
       return;
     }
     if (request.method === 'POST' && url.pathname === '/api/jobs') {

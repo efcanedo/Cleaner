@@ -27,7 +27,18 @@ export type CleaningJob = {
   createdAt: string;
   destination?: string;
   results: FileResult[];
+  estimatedCost?: CostEstimate;
+  actualCostUSD: number;
   error?: string;
+};
+
+export type CostEstimate = {
+  lowUSD: number;
+  highUSD: number;
+  model: string;
+  pricingUpdatedAt: string;
+  pricingSource: string;
+  assumption: string;
 };
 
 export type SettingsStatus = {
@@ -36,4 +47,9 @@ export type SettingsStatus = {
   reasoningEffort: string;
   toolkitAvailable: boolean;
   version: string;
+  pricing: {
+    models: Record<string, { input: number; cachedInput: number; output: number }>;
+    updatedAt: string;
+    source: string;
+  };
 };

@@ -1,4 +1,4 @@
-# Document Cleaner 1.0
+# Document Cleaner 1.1
 
 Document Cleaner is a local Apple-silicon macOS app that converts difficult source files into source-faithful Markdown. Its interface and native packaging follow the interaction model of [Document Harvester](https://github.com/efcanedo/Document-Harvester), while its processing engine is designed for local file selection, OpenAI-assisted restoration, separate fidelity audits, and archival output to Downloads.
 
@@ -18,6 +18,10 @@ Supported inputs are Markdown, plain text, Word, PDF, and—on Beacon paths—PN
 The user supplies an OpenAI API key in Settings. The key is stored in macOS Keychain under the service `com.ecanedo.documentcleaner`; it is never stored in browser data or a repository file. Requests go directly from the local helper to the OpenAI Responses API with response storage disabled. Temporary uploads are stored with restrictive permissions under `~/Library/Application Support/Document Cleaner/jobs` and removed after the job ends.
 
 The default model is `gpt-5.6-terra`, with `gpt-5.6-sol` and `gpt-5.6-luna` selectable. The implementation follows the official [Responses API reference](https://developers.openai.com/api/reference/typescript/resources/beta/subresources/responses/methods/create) for file/image inputs and structured outputs.
+
+Before a job begins, the run bar displays an approximate API-cost range based on selected file sizes, cleaning path, model, and current published token prices. Completed jobs display the cost calculated from the API's reported token usage. Estimates for PDFs and images are intentionally wider because their tokenization depends on page and image content.
+
+Ordinary news articles use one medium-reasoning structured cleaning and fidelity pass. A separate high-reasoning audit runs only when the first pass reports ambiguous boundaries, uncertainty, multi-article contamination, or material OCR/layout risk. Complex document, transcript, and Beacon paths retain their independent audit passes.
 
 ## Architecture
 
@@ -42,7 +46,7 @@ See [BUILDING.md](BUILDING.md). On a compatible Mac:
 ./scripts/build-app.sh
 ```
 
-The verified distributable is created at `outputs/Document Cleaner 1.0.app.zip`.
+The verified distributable is created at `outputs/Document Cleaner 1.1.app.zip`.
 
 ## Operational limits
 

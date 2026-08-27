@@ -4,9 +4,10 @@ import mammoth from 'mammoth';
 import { PDFDocument } from 'pdf-lib';
 import { createResponse } from './openai.mjs';
 import {
-  auditPrompt, auditSchema, cleaningPrompt, issueAuditPrompt, issuePrompt, issueSchema,
+  auditPrompt, auditSchema, cleaningPrompt, fastArticlePrompt, fastArticleSchema, issueAuditPrompt, issuePrompt, issueSchema,
   volumeManifestPrompt, volumeManifestSchema,
 } from './prompts.mjs';
+import { usageCost } from './pricing.mjs';
 import {
   DOWNLOADS, basenameWithoutExtension, copyPreserving, ensureDir, exists, fileSize, runCommand,
   safeFilename, timestamp, uniqueDirectory, writeTextAtomic,
@@ -30,8 +31,21 @@ function update(job, notify, values) {
   notify(job);
 }
 
+async function pricedResponse(job, notify, options) {
+  const response = await createResponse(options);
+  const cost = usageCost(options.model, response.usage);
+  update(job, notify, { actualCostUSD: Number(job.actualCostUSD || 0) + cost });
+  return response;
+}
+
 function resultFor(sourceName, status, outputs, uncertainty = '', error = '') {
   return { sourceName, status, outputs, ...(uncertainty ? { uncertainty } : {}), ...(error ? { error } : {}) };
+}
+
+function shouldAuditNews(review) {
+  return review.requires_second_audit
+    || review.status !== 'Cleaned and verified'
+    || Boolean(review.uncertainty_summary?.trim());
 }
 
 async function pdfPageCount(filePath) {
@@ -117,12 +131,15 @@ function markdownFilename(cleaningPath, sourceName, markdown) {
 
 async function cleanAndAudit({ job, notify, source, sourceName, cleaningPath, outputDirectory, config, toolkit }) {
   assertNotCancelled(job);
+  if (cleaningPath === 'news_articles') {
+    return cleanNewsArticle({ job, notify, source, sourceName, outputDirectory, config });
+  }
   const prepared = cleaningPath === 'documents'
     ? await prepareDocumentAssets(toolkit, source, outputDirectory)
     : { sources: [source], assetNote: '', assetPaths: [] };
 
   update(job, notify, { stage: `Cleaning ${sourceName}`, status: 'processing' });
-  const cleaned = await createResponse({
+  const cleaned = await pricedResponse(job, notify, {
     ...config,
     prompt: cleaningPrompt(cleaningPath, sourceName, prepared.assetNote),
     sources: prepared.sources,
@@ -132,7 +149,7 @@ async function cleanAndAudit({ job, notify, source, sourceName, cleaningPath, ou
   const proposed = stripFence(cleaned.text);
 
   update(job, notify, { stage: `Auditing ${sourceName}`, status: 'auditing' });
-  const audited = await createResponse({
+  const audited = await pricedResponse(job, notify, {
     ...config,
     prompt: auditPrompt(cleaningPath, sourceName, proposed, prepared.assetNote),
     sources: prepared.sources,
@@ -148,6 +165,49 @@ async function cleanAndAudit({ job, notify, source, sourceName, cleaningPath, ou
   return {
     result: resultFor(sourceName, audit.status, [filename, ...prepared.assetPaths.map((item) => path.relative(outputDirectory, item))], audit.uncertainty_summary),
     auditNotes: audit.audit_notes,
+  };
+}
+
+async function cleanNewsArticle({ job, notify, source, sourceName, outputDirectory, config }) {
+  const sourceBytes = await fileSize(source);
+  const maxOutputTokens = Math.max(12_000, Math.min(48_000, Math.ceil(sourceBytes / 3) + 3_000));
+  update(job, notify, { stage: `Cleaning and checking ${sourceName}`, status: 'processing' });
+  const first = await pricedResponse(job, notify, {
+    ...config,
+    reasoningEffort: 'medium',
+    maxOutputTokens,
+    prompt: fastArticlePrompt(sourceName),
+    sources: [source],
+    schema: fastArticleSchema,
+    schemaName: 'clean_news_article',
+    signal: job.abortController.signal,
+  });
+  let review = first.json;
+  const firstRiskReason = review.risk_reason;
+  const requiresAudit = shouldAuditNews(review);
+  let auditNotes = review.audit_notes;
+  if (requiresAudit) {
+    assertNotCancelled(job);
+    update(job, notify, { stage: `Risk-triggered audit of ${sourceName}`, status: 'auditing' });
+    const audited = await pricedResponse(job, notify, {
+      ...config,
+      reasoningEffort: config.reasoningEffort === 'medium' ? 'high' : config.reasoningEffort,
+      maxOutputTokens,
+      prompt: auditPrompt('news_articles', sourceName, stripFence(review.final_markdown)),
+      sources: [source],
+      schema: auditSchema,
+      schemaName: 'news_article_risk_audit',
+      signal: job.abortController.signal,
+    });
+    review = audited.json;
+    auditNotes = `${auditNotes || ''}${auditNotes ? ' ' : ''}Second audit: ${audited.json.audit_notes || firstRiskReason || 'Triggered by first-pass risk.'}`;
+  }
+  const finalMarkdown = stripFence(review.final_markdown);
+  const filename = markdownFilename('news_articles', sourceName, finalMarkdown);
+  await writeTextAtomic(path.join(outputDirectory, filename), `${finalMarkdown.trim()}\n`);
+  return {
+    result: resultFor(sourceName, review.status, [filename], review.uncertainty_summary),
+    auditNotes,
   };
 }
 
@@ -225,8 +285,8 @@ async function processBeaconArticleItem({ job, notify, files, config, toolkit, b
     ocrReport = { warning: error.message, pages: 0 };
   }
   const cleanSource = improvedPath;
-  const cleaned = await createResponse({ ...config, prompt: cleaningPrompt('beacon_article', first.originalName), sources: [cleanSource], signal: job.abortController.signal });
-  const audited = await createResponse({ ...config, prompt: auditPrompt('beacon_article', first.originalName, stripFence(cleaned.text)), sources: [cleanSource], schema: auditSchema, schemaName: 'beacon_article_audit', signal: job.abortController.signal });
+  const cleaned = await pricedResponse(job, notify, { ...config, prompt: cleaningPrompt('beacon_article', first.originalName), sources: [cleanSource], signal: job.abortController.signal });
+  const audited = await pricedResponse(job, notify, { ...config, prompt: auditPrompt('beacon_article', first.originalName, stripFence(cleaned.text)), sources: [cleanSource], schema: auditSchema, schemaName: 'beacon_article_audit', signal: job.abortController.signal });
   const audit = audited.json;
   const markdownName = `${source.baseName}.md`;
   await writeTextAtomic(path.join(outputDirectory, markdownName), `${stripFence(audit.final_markdown).trim()}\n`);
@@ -319,9 +379,9 @@ async function recoverIssue({ job, notify, sourcePDF, outputDirectory, sourceNam
   }
   assertNotCancelled(job);
   update(job, notify, { stage: `Identifying articles in ${sourceName}` });
-  const extracted = await createResponse({ ...config, prompt: issuePrompt(sourceName), sources: [improvedPath], schema: issueSchema, schemaName: 'beacon_issue', signal: job.abortController.signal });
+  const extracted = await pricedResponse(job, notify, { ...config, prompt: issuePrompt(sourceName), sources: [improvedPath], schema: issueSchema, schemaName: 'beacon_issue', signal: job.abortController.signal });
   update(job, notify, { stage: `Auditing every page of ${sourceName}`, status: 'auditing' });
-  const audited = await createResponse({ ...config, prompt: issueAuditPrompt(sourceName, extracted.json), sources: [improvedPath], schema: issueSchema, schemaName: 'beacon_issue_audit', signal: job.abortController.signal });
+  const audited = await pricedResponse(job, notify, { ...config, prompt: issueAuditPrompt(sourceName, extracted.json), sources: [improvedPath], schema: issueSchema, schemaName: 'beacon_issue_audit', signal: job.abortController.signal });
   const issue = audited.json;
   const outputs = await writeIssueOutputs(outputDirectory, issue, { originalName: sourceName, improvedName, ocrStatus, pageCount: await pdfPageCount(sourcePDF) });
   if (ocrStatus.startsWith('Warning')) outputs.uncertainties.push(ocrStatus);
@@ -377,7 +437,7 @@ async function processBeaconVolume({ job, notify, files, config, toolkit }) {
   await copyPreserving(source.path, preservedVolume);
   const pageCount = await pdfPageCount(source.path);
   update(job, notify, { stage: 'Inspecting complete volume and establishing issue boundaries', status: 'processing', progress: 4 });
-  const manifestResponse = await createResponse({ ...config, prompt: volumeManifestPrompt(source.originalName, pageCount), sources: [source.path], schema: volumeManifestSchema, schemaName: 'beacon_volume_manifest', signal: job.abortController.signal });
+  const manifestResponse = await pricedResponse(job, notify, { ...config, prompt: volumeManifestPrompt(source.originalName, pageCount), sources: [source.path], schema: volumeManifestSchema, schemaName: 'beacon_volume_manifest', signal: job.abortController.signal });
   const manifest = validateManifest(manifestResponse.json, pageCount);
   job.totalFiles = manifest.issues.length;
   const issueSummaries = [];
@@ -450,4 +510,4 @@ export async function processJob({ job, files, config, toolkit, notify }) {
   return destination;
 }
 
-export const testables = { stripFence, normalizedDate, markdownFilename, validateManifest, safeFilename };
+export const testables = { stripFence, normalizedDate, markdownFilename, shouldAuditNews, validateManifest, safeFilename };

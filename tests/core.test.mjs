@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { testables } from '../native/pipeline.mjs';
-import { auditSchema, cleaningPrompt, issuePrompt, issueSchema, volumeManifestPrompt, volumeManifestSchema } from '../native/prompts.mjs';
+import { auditSchema, cleaningPrompt, fastArticlePrompt, fastArticleSchema, issuePrompt, issueSchema, volumeManifestPrompt, volumeManifestSchema } from '../native/prompts.mjs';
+import { estimateJobCost, usageCost } from '../native/pricing.mjs';
 
 test('cleaned filenames preserve source bases', () => {
   assert.equal(testables.markdownFilename('documents', 'Q.56 Matters.pdf', '# Q.56'), 'Q.56 Matters [cleaned].md');
@@ -59,4 +60,25 @@ test('the complete supplied specification is routed into each selected path', ()
   const volume = volumeManifestPrompt('volume.pdf', 40);
   assert.match(volume, /Process the volume in checkpoints/);
   assert.match(volume, /General App Safeguards/);
+});
+
+test('fast article output requires an explicit conditional-audit decision', () => {
+  assert.match(fastArticlePrompt('article.md'), /requires_second_audit/);
+  assert.ok(fastArticleSchema.required.includes('requires_second_audit'));
+  assert.ok(fastArticleSchema.required.includes('final_markdown'));
+  assert.equal(testables.shouldAuditNews({ requires_second_audit: false, status: 'Cleaned and verified', uncertainty_summary: '' }), false);
+  assert.equal(testables.shouldAuditNews({ requires_second_audit: true, status: 'Cleaned and verified', uncertainty_summary: '' }), true);
+  assert.equal(testables.shouldAuditNews({ requires_second_audit: false, status: 'Cleaned and verified with uncertainties', uncertainty_summary: 'Unclear boundary.' }), true);
+});
+
+test('recorded usage cost follows current Terra token prices', () => {
+  const cost = usageCost('gpt-5.6-terra', { input_tokens: 100_000, output_tokens: 10_000, input_tokens_details: {} });
+  assert.equal(cost, 0.32);
+});
+
+test('news estimates show one-pass to conditional-audit range', () => {
+  const estimate = estimateJobCost('news_articles', [{ name: 'article.md', size: 40_000 }], 'gpt-5.6-terra');
+  assert.ok(estimate.lowUSD > 0);
+  assert.ok(estimate.highUSD > estimate.lowUSD);
+  assert.match(estimate.assumption, /second audit/);
 });

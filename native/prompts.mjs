@@ -131,6 +131,29 @@ export const auditSchema = {
   },
 };
 
+export function fastArticlePrompt(sourceName) {
+  return `Clean this scraped news article in one source-faithful pass and perform a silent sequential fidelity check before returning the structured result.
+
+SOURCE: ${sourceName}
+${fidelity}
+${pathRules.news_articles}
+${exactRules('news_articles')}
+
+Set requires_second_audit to true only when a genuinely separate review is warranted: the article boundary remains ambiguous, substantive text or metadata is uncertain, the source may contain multiple captured articles, OCR or layout corruption is material, or the result cannot be classified as fully verified. A normal article with clearly removable website chrome should not require a second audit.
+
+final_markdown must contain only the cleaned article, without a code fence. audit_notes should briefly identify the source boundary and the principal removed debris. uncertainty_summary and risk_reason must be empty when the article is fully verified.`;
+}
+
+export const fastArticleSchema = {
+  type: 'object', additionalProperties: false,
+  required: ['status', 'uncertainty_summary', 'audit_notes', 'final_markdown', 'requires_second_audit', 'risk_reason'],
+  properties: {
+    status: { type: 'string', enum: ['Cleaned and verified', 'Cleaned and verified with uncertainties', 'Unable to verify'] },
+    uncertainty_summary: { type: 'string' }, audit_notes: { type: 'string' }, final_markdown: { type: 'string' },
+    requires_second_audit: { type: 'boolean' }, risk_reason: { type: 'string' },
+  },
+};
+
 export function issuePrompt(sourceName) {
   return `You are recovering one complete historical Beacon issue from the attached source: ${sourceName}.
 ${exactRules('beacon_issue')}

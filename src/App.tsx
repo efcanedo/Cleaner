@@ -1,5 +1,5 @@
 import { ChangeEvent, DragEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { CleaningJob, CleaningPath, SettingsStatus } from './types';
+import type { CleaningJob, CleaningPath, CostEstimate, SettingsStatus } from './types';
 
 const API = 'http://127.0.0.1:41842';
 
@@ -20,6 +20,16 @@ function formatBytes(bytes: number) {
 
 function pathTitle(path: CleaningPath) {
   return PATHS.find((item) => item.id === path)?.title ?? path;
+}
+
+function dollars(value: number) {
+  if (value > 0 && value < 0.001) return '<$0.001';
+  if (value > 0 && value < 0.01) return `$${value.toFixed(3)}`;
+  return `$${value.toFixed(2)}`;
+}
+
+function estimateLabel(estimate: CostEstimate) {
+  return `${dollars(estimate.lowUSD)}–${dollars(estimate.highUSD)}`;
 }
 
 function uniqueFiles(existing: File[], incoming: File[]) {
@@ -48,6 +58,8 @@ export default function App() {
   const [running, setRunning] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState('');
+  const [costEstimate, setCostEstimate] = useState<CostEstimate | null>(null);
+  const [estimatingCost, setEstimatingCost] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
 
   const selected = useMemo(() => PATHS.find((item) => item.id === selectedPath)!, [selectedPath]);
@@ -66,6 +78,32 @@ export default function App() {
   useEffect(() => {
     void refreshSettings();
   }, [refreshSettings]);
+
+  useEffect(() => {
+    if (!files.length) {
+      setCostEstimate(null);
+      setEstimatingCost(false);
+      return;
+    }
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      setEstimatingCost(true);
+      try {
+        const estimate = await api<CostEstimate>('/api/estimate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: selectedPath, files: files.map((file) => ({ name: file.name, size: file.size, type: file.type })) }),
+          signal: controller.signal,
+        });
+        setCostEstimate(estimate);
+      } catch (estimateError) {
+        if (!(estimateError instanceof DOMException && estimateError.name === 'AbortError')) setCostEstimate(null);
+      } finally {
+        if (!controller.signal.aborted) setEstimatingCost(false);
+      }
+    }, 250);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  }, [files, selectedPath, settings?.model]);
 
   useEffect(() => {
     if (!job || ['completed', 'failed', 'cancelled'].includes(job.status)) {
@@ -257,7 +295,7 @@ export default function App() {
 
           {job && (
             <div className="job-progress" aria-live="polite">
-              <div className="progress-heading"><div><strong>{job.stage}</strong><small>{job.completedFiles} of {job.totalFiles} source files finished</small></div><span>{Math.round(job.progress)}%</span></div>
+              <div className="progress-heading"><div><strong>{job.stage}</strong><small>{job.completedFiles} of {job.totalFiles} source files finished{job.actualCostUSD > 0 ? ` · ${dollars(job.actualCostUSD)} API cost so far` : ''}</small></div><span>{Math.round(job.progress)}%</span></div>
               <div className="progress-track"><i style={{ width: `${job.progress}%` }} /></div>
               {job.results.length > 0 && <div className="results-list">{job.results.map((result) => (
                 <div className={`result ${result.status === 'Unable to verify' ? 'is-error' : result.uncertainty ? 'is-warning' : ''}`} key={result.sourceName}>
@@ -265,12 +303,14 @@ export default function App() {
                   <div><strong>{result.sourceName}</strong><small>{result.status}{result.uncertainty ? ` — ${result.uncertainty}` : ''}{result.error ? ` — ${result.error}` : ''}</small></div>
                 </div>
               ))}</div>}
+              {finished && <div className="cost-summary"><span><small>Pre-run estimate</small><strong>{job.estimatedCost ? estimateLabel(job.estimatedCost) : 'Not available'}</strong></span><span><small>Recorded token cost</small><strong>{job.actualCostUSD > 0 ? dollars(job.actualCostUSD) : 'Not reported'}</strong></span></div>}
               {job.destination && <button className="finder-button" type="button" onClick={() => reveal(job.destination)}>Show output folder in Finder</button>}
             </div>
           )}
 
           <div className="run-bar">
-            <div className="destination"><span aria-hidden="true">⌄</span><div><small>Destination</small><strong>Downloads · unique timestamped folder</strong><small className="cleanup-note">Originals remain untouched. Each source is independently audited.</small></div></div>
+            <div className="destination"><span aria-hidden="true">⌄</span><div><small>Destination</small><strong>Downloads · unique timestamped folder</strong><small className="cleanup-note">Originals remain untouched. Each source is independently checked.</small></div></div>
+            <div className="cost-estimate" title={costEstimate?.assumption || 'Add files to estimate API cost.'}><small>Estimated API cost</small><strong>{estimatingCost ? 'Calculating…' : costEstimate ? estimateLabel(costEstimate) : 'Add files'}</strong><em>{costEstimate ? `${costEstimate.model} · estimate` : 'Before processing'}</em></div>
             {running && !finished ? <button className="cancel-button" type="button" onClick={cancelJob}>Cancel after current request</button> : <button className="primary-button" type="button" disabled={!files.length || !settings?.hasKey} onClick={runCleaning}>{finished ? `Run another ${pathTitle(selectedPath)} job` : `Clean ${files.length || ''} file${files.length === 1 ? '' : 's'}`}</button>}
           </div>
         </section>
@@ -285,8 +325,9 @@ export default function App() {
             <form onSubmit={saveSettings}>
               <label>API key <small>{settings?.hasKey ? 'A key is stored in macOS Keychain. Leave blank to keep it.' : 'Required. Stored only in macOS Keychain.'}</small><input type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder={settings?.hasKey ? '••••••••••••••••' : 'sk-…'} autoComplete="off" /></label>
               <label>Processing model <small>Terra balances fidelity and cost; Sol prioritizes difficult sources.</small><select value={model} onChange={(event) => setModel(event.target.value)}><option value="gpt-5.6-terra">GPT-5.6 Terra — balanced</option><option value="gpt-5.6-sol">GPT-5.6 Sol — highest fidelity</option><option value="gpt-5.6-luna">GPT-5.6 Luna — lowest cost</option></select></label>
-              <label>Reasoning effort <small>Higher effort is recommended for complex layouts and uncertain transcripts.</small><select value={effort} onChange={(event) => setEffort(event.target.value)}><option value="medium">Medium</option><option value="high">High</option><option value="xhigh">Extra high</option></select></label>
+              <label>Reasoning effort <small>Used for complex paths and risk-triggered audits. Ordinary news articles begin with a faster medium-reasoning pass.</small><select value={effort} onChange={(event) => setEffort(event.target.value)}><option value="medium">Medium</option><option value="high">High</option><option value="xhigh">Extra high</option></select></label>
               <div className="privacy-note"><strong>Privacy behavior</strong><p>Requests go directly from this Mac to OpenAI. API response storage is disabled. Temporary working files are removed after a job finishes; completed outputs remain in Downloads.</p></div>
+              {settings?.pricing && <div className="pricing-note"><strong>API prices used for estimates</strong><p>Per 1 million input/output tokens: Sol {dollars(settings.pricing.models['gpt-5.6-sol'].input)}/{dollars(settings.pricing.models['gpt-5.6-sol'].output)}, Terra {dollars(settings.pricing.models['gpt-5.6-terra'].input)}/{dollars(settings.pricing.models['gpt-5.6-terra'].output)}, and Luna {dollars(settings.pricing.models['gpt-5.6-luna'].input)}/{dollars(settings.pricing.models['gpt-5.6-luna'].output)}. <a href={settings.pricing.source} target="_blank" rel="noreferrer">Official pricing</a> · checked {settings.pricing.updatedAt}.</p></div>}
               {settingsMessage && <p className="settings-message" role="status">{settingsMessage}</p>}
               <div className="modal-actions"><button className="secondary-button" type="button" disabled={!settings?.hasKey || savingSettings} onClick={testKey}>Test saved key</button><button className="primary-button" type="submit" disabled={savingSettings || (!settings?.hasKey && !apiKey.trim())}>{savingSettings ? 'Saving…' : 'Save settings'}</button></div>
             </form>
