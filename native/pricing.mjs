@@ -65,13 +65,15 @@ export function estimateJobCost(cleaningPath, files, model) {
   let high = 0;
   let assumption = '';
 
-  if (cleaningPath === 'news_articles') {
-    const visible = Math.max(800, sourcePerFile * 0.65);
+  if (['news_articles', 'documents', 'hearing_transcripts'].includes(cleaningPath)) {
+    const outputFactors = { news_articles: 0.65, documents: 0.75, hearing_transcripts: 0.95 };
+    const labels = { news_articles: 'article', documents: 'document', hearing_transcripts: 'transcript' };
+    const visible = Math.max(800, sourcePerFile * outputFactors[cleaningPath]);
     const first = requestCost(rates, sourcePerFile + prompt, visible, 1.25, longContext);
     const audit = requestCost(rates, sourcePerFile + prompt + visible, visible, 1.65, longContext);
     low = first * fileCount * 0.8;
     high = (first + audit) * fileCount * 1.25;
-    assumption = 'One medium-reasoning pass per article; the upper bound allows a risk-triggered second audit.';
+    assumption = `One medium-reasoning pass per ${labels[cleaningPath]}; the upper bound allows a risk-triggered second audit.`;
   } else if (cleaningPath === 'beacon_volume') {
     const visible = Math.max(2_000, totalSource * 0.8);
     const perPass = requestCost(rates, totalSource + prompt, visible, 1.7, longContext);

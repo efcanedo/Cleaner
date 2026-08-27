@@ -1,12 +1,12 @@
-# Document Cleaner 1.1
+# Document Cleaner 1.2
 
-Document Cleaner is a local Apple-silicon macOS app that converts difficult source files into source-faithful Markdown. Its interface and native packaging follow the interaction model of [Document Harvester](https://github.com/efcanedo/Document-Harvester), while its processing engine is designed for local file selection, OpenAI-assisted restoration, separate fidelity audits, and archival output to Downloads.
+Document Cleaner is a local Apple-silicon macOS app that converts difficult source files into source-faithful Markdown. Its interface and native packaging follow the interaction model of [Document Harvester](https://github.com/efcanedo/Document-Harvester), while its processing engine is designed for local file selection, OpenAI-assisted restoration, adaptive fidelity audits, and archival output to Downloads.
 
 ## Cleaning paths
 
 - **News articles** removes site chrome, promotions, unrelated blocks, and scraping debris while preserving the complete article, its supplied title line, source URL, metadata, inline links, and journalism.
 - **Documents** restores prose, tables, forms, reports, filings, slides, hierarchies, and visual evidence. Rendered PDF pages are preserved as Markdown assets when visual evidence may be significant.
-- **Hearing transcripts** removes caption buildup, restores punctuation and paragraphs, identifies speakers only when supported, and independently audits turns, numbers, names, corrections, and deduplication.
+- **Hearing transcripts** removes caption buildup, restores punctuation and paragraphs, identifies speakers only when supported, and conditionally audits uncertain turns, numbers, names, corrections, and deduplication.
 - **Beacon article** preserves the original, creates an OCR-improved PDF, reconstructs one article across columns or continuations, and writes `audit.md`.
 - **Beacon issue** preserves and re-OCRs an issue, inventories it page by page, creates one Markdown file per article plus a masthead, and writes an issue audit.
 - **Beacon volume** preserves the complete volume, establishes issue boundaries from source evidence, creates split and improved issue PDFs, checkpoints each issue, extracts its articles and masthead, and writes issue- and volume-level audits.
@@ -21,7 +21,7 @@ The default model is `gpt-5.6-terra`, with `gpt-5.6-sol` and `gpt-5.6-luna` sele
 
 Before a job begins, the run bar displays an approximate API-cost range based on selected file sizes, cleaning path, model, and current published token prices. Completed jobs display the cost calculated from the API's reported token usage. Estimates for PDFs and images are intentionally wider because their tokenization depends on page and image content.
 
-Ordinary news articles use one medium-reasoning structured cleaning and fidelity pass. A separate high-reasoning audit runs only when the first pass reports ambiguous boundaries, uncertainty, multi-article contamination, or material OCR/layout risk. Complex document, transcript, and Beacon paths retain their independent audit passes.
+News articles, documents, and hearing transcripts use one medium-reasoning structured cleaning and fidelity pass. A separate higher-reasoning audit runs only when the first pass reports uncertainty or path-specific risk. For documents, triggers include uncertain reading order, material OCR damage, and complex tables, forms, hierarchies, or significant visuals. For transcripts, triggers include uncertain speakers or turns, questionable deduplication, unsupported dates or titles, and high-risk names, numbers, amounts, or citations. Beacon paths retain their independent audit passes.
 
 ## Architecture
 
@@ -46,7 +46,7 @@ See [BUILDING.md](BUILDING.md). On a compatible Mac:
 ./scripts/build-app.sh
 ```
 
-The verified distributable is created at `outputs/Document Cleaner 1.1.app.zip`.
+The verified distributable is created at `outputs/Document Cleaner 1.2.app.zip`.
 
 ## Operational limits
 

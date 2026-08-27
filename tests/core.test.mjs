@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { testables } from '../native/pipeline.mjs';
-import { auditSchema, cleaningPrompt, fastArticlePrompt, fastArticleSchema, issuePrompt, issueSchema, volumeManifestPrompt, volumeManifestSchema } from '../native/prompts.mjs';
+import { adaptiveCleaningPrompt, adaptiveCleaningSchema, auditSchema, cleaningPrompt, issuePrompt, issueSchema, volumeManifestPrompt, volumeManifestSchema } from '../native/prompts.mjs';
 import { estimateJobCost, usageCost } from '../native/pricing.mjs';
 
 test('cleaned filenames preserve source bases', () => {
@@ -62,13 +62,22 @@ test('the complete supplied specification is routed into each selected path', ()
   assert.match(volume, /General App Safeguards/);
 });
 
-test('fast article output requires an explicit conditional-audit decision', () => {
-  assert.match(fastArticlePrompt('article.md'), /requires_second_audit/);
-  assert.ok(fastArticleSchema.required.includes('requires_second_audit'));
-  assert.ok(fastArticleSchema.required.includes('final_markdown'));
-  assert.equal(testables.shouldAuditNews({ requires_second_audit: false, status: 'Cleaned and verified', uncertainty_summary: '' }), false);
-  assert.equal(testables.shouldAuditNews({ requires_second_audit: true, status: 'Cleaned and verified', uncertainty_summary: '' }), true);
-  assert.equal(testables.shouldAuditNews({ requires_second_audit: false, status: 'Cleaned and verified with uncertainties', uncertainty_summary: 'Unclear boundary.' }), true);
+test('all ordinary paths require an explicit conditional-audit decision', () => {
+  assert.match(adaptiveCleaningPrompt('news_articles', 'article.md'), /article boundary remains ambiguous/);
+  assert.match(adaptiveCleaningPrompt('documents', 'record.pdf', 'Rendered source pages are available.'), /table, form, hierarchy/);
+  assert.match(adaptiveCleaningPrompt('hearing_transcripts', 'captions.txt'), /speaker identity or turn boundaries/);
+  assert.ok(adaptiveCleaningSchema.required.includes('requires_second_audit'));
+  assert.ok(adaptiveCleaningSchema.required.includes('final_markdown'));
+  assert.equal(testables.shouldRunAdaptiveAudit({ requires_second_audit: false, status: 'Cleaned and verified', uncertainty_summary: '' }), false);
+  assert.equal(testables.shouldRunAdaptiveAudit({ requires_second_audit: true, status: 'Cleaned and verified', uncertainty_summary: '' }), true);
+  assert.equal(testables.shouldRunAdaptiveAudit({ requires_second_audit: false, status: 'Cleaned and verified with uncertainties', uncertainty_summary: 'Unclear boundary.' }), true);
+});
+
+test('adaptive output limits preserve more room for long transcripts', () => {
+  assert.equal(testables.adaptiveOutputLimit('news_articles', 30_000), 13_000);
+  assert.equal(testables.adaptiveOutputLimit('documents', 30_000), 23_000);
+  assert.equal(testables.adaptiveOutputLimit('hearing_transcripts', 30_000), 18_000);
+  assert.equal(testables.adaptiveOutputLimit('hearing_transcripts', 1_000_000), 120_000);
 });
 
 test('recorded usage cost follows current Terra token prices', () => {
@@ -76,9 +85,11 @@ test('recorded usage cost follows current Terra token prices', () => {
   assert.equal(cost, 0.32);
 });
 
-test('news estimates show one-pass to conditional-audit range', () => {
-  const estimate = estimateJobCost('news_articles', [{ name: 'article.md', size: 40_000 }], 'gpt-5.6-terra');
-  assert.ok(estimate.lowUSD > 0);
-  assert.ok(estimate.highUSD > estimate.lowUSD);
-  assert.match(estimate.assumption, /second audit/);
+test('ordinary-path estimates show one pass to a conditional audit', () => {
+  for (const [cleaningPath, name] of [['news_articles', 'article.md'], ['documents', 'record.txt'], ['hearing_transcripts', 'hearing.txt']]) {
+    const estimate = estimateJobCost(cleaningPath, [{ name, size: 40_000 }], 'gpt-5.6-terra');
+    assert.ok(estimate.lowUSD > 0);
+    assert.ok(estimate.highUSD > estimate.lowUSD);
+    assert.match(estimate.assumption, /second audit/);
+  }
 });

@@ -12,7 +12,7 @@ import {
   SETTINGS_FILE, WORK_ROOT, ensureDir, exists, readJSON, removeWorkDirectory, runCommand, safeFilename, writeTextAtomic,
 } from './utils.mjs';
 
-const VERSION = '1.1';
+const VERSION = '1.2';
 const PORT = Number(process.env.DOCUMENT_CLEANER_PORT || 41842);
 const HOST = '127.0.0.1';
 const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));

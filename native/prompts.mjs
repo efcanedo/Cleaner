@@ -131,20 +131,28 @@ export const auditSchema = {
   },
 };
 
-export function fastArticlePrompt(sourceName) {
-  return `Clean this scraped news article in one source-faithful pass and perform a silent sequential fidelity check before returning the structured result.
+const adaptiveRiskRules = {
+  news_articles: `Set requires_second_audit to true only when a genuinely separate review is warranted: the article boundary remains ambiguous, substantive text or metadata is uncertain, the source may contain multiple captured articles, OCR or layout corruption is material, or the result cannot be classified as fully verified. A normal article with clearly removable website chrome should not require a second audit.`,
+  documents: `Set requires_second_audit to true when a genuinely separate review is warranted: document type or reading order remains uncertain; OCR corruption is material; a dense or ambiguous table, form, hierarchy, slide, chart, or significant visual must be verified; substantive text, metadata, labels, values, footnotes, signatures, or appendices may be missing or mis-associated; rendered assets were unavailable when needed; or the result cannot be classified as fully verified. A straightforward prose document with clear structure and no unresolved fidelity issue should not require a second audit.`,
+  hearing_transcripts: `Set requires_second_audit to true when a genuinely separate review is warranted: speaker identity or turn boundaries remain uncertain; caption duplication cannot be confidently distinguished from genuinely spoken repetition; names, dates, numbers, amounts, percentages, citations, agencies, schools, or technical terms are materially uncertain; the hearing title or date is unsupported; substantial audio/transcription corruption remains; or the result cannot be classified as fully verified. A clearly recoverable transcript with supported speaker turns should not require a second audit.`,
+};
+
+export function adaptiveCleaningPrompt(path, sourceName, assetNote = '') {
+  if (!adaptiveRiskRules[path]) throw new Error(`No adaptive prompt exists for ${path}.`);
+  return `Clean this ${PATH_LABELS[path].toLowerCase()} source in one source-faithful pass and perform a silent sequential fidelity check before returning the structured result.
 
 SOURCE: ${sourceName}
+${assetNote}
 ${fidelity}
-${pathRules.news_articles}
-${exactRules('news_articles')}
+${pathRules[path]}
+${exactRules(path)}
 
-Set requires_second_audit to true only when a genuinely separate review is warranted: the article boundary remains ambiguous, substantive text or metadata is uncertain, the source may contain multiple captured articles, OCR or layout corruption is material, or the result cannot be classified as fully verified. A normal article with clearly removable website chrome should not require a second audit.
+${adaptiveRiskRules[path]}
 
-final_markdown must contain only the cleaned article, without a code fence. audit_notes should briefly identify the source boundary and the principal removed debris. uncertainty_summary and risk_reason must be empty when the article is fully verified.`;
+final_markdown must contain only the cleaned deliverable, without a code fence. audit_notes should briefly identify the fidelity checks performed and the principal mechanical cleanup. uncertainty_summary and risk_reason must be empty when the source is fully verified.`;
 }
 
-export const fastArticleSchema = {
+export const adaptiveCleaningSchema = {
   type: 'object', additionalProperties: false,
   required: ['status', 'uncertainty_summary', 'audit_notes', 'final_markdown', 'requires_second_audit', 'risk_reason'],
   properties: {

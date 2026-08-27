@@ -4,7 +4,7 @@ import mammoth from 'mammoth';
 import { PDFDocument } from 'pdf-lib';
 import { createResponse } from './openai.mjs';
 import {
-  auditPrompt, auditSchema, cleaningPrompt, fastArticlePrompt, fastArticleSchema, issueAuditPrompt, issuePrompt, issueSchema,
+  adaptiveCleaningPrompt, adaptiveCleaningSchema, auditPrompt, auditSchema, cleaningPrompt, issueAuditPrompt, issuePrompt, issueSchema,
   volumeManifestPrompt, volumeManifestSchema,
 } from './prompts.mjs';
 import { usageCost } from './pricing.mjs';
@@ -42,10 +42,20 @@ function resultFor(sourceName, status, outputs, uncertainty = '', error = '') {
   return { sourceName, status, outputs, ...(uncertainty ? { uncertainty } : {}), ...(error ? { error } : {}) };
 }
 
-function shouldAuditNews(review) {
+function shouldRunAdaptiveAudit(review) {
   return review.requires_second_audit
     || review.status !== 'Cleaned and verified'
     || Boolean(review.uncertainty_summary?.trim());
+}
+
+function adaptiveOutputLimit(cleaningPath, sourceBytes) {
+  const settings = {
+    news_articles: { minimum: 12_000, maximum: 48_000, divisor: 3, reserve: 3_000 },
+    documents: { minimum: 16_000, maximum: 96_000, divisor: 2, reserve: 8_000 },
+    hearing_transcripts: { minimum: 16_000, maximum: 120_000, divisor: 3, reserve: 8_000 },
+  }[cleaningPath];
+  if (!settings) return 120_000;
+  return Math.max(settings.minimum, Math.min(settings.maximum, Math.ceil(sourceBytes / settings.divisor) + settings.reserve));
 }
 
 async function pdfPageCount(filePath) {
@@ -131,60 +141,25 @@ function markdownFilename(cleaningPath, sourceName, markdown) {
 
 async function cleanAndAudit({ job, notify, source, sourceName, cleaningPath, outputDirectory, config, toolkit }) {
   assertNotCancelled(job);
-  if (cleaningPath === 'news_articles') {
-    return cleanNewsArticle({ job, notify, source, sourceName, outputDirectory, config });
-  }
   const prepared = cleaningPath === 'documents'
     ? await prepareDocumentAssets(toolkit, source, outputDirectory)
     : { sources: [source], assetNote: '', assetPaths: [] };
-
-  update(job, notify, { stage: `Cleaning ${sourceName}`, status: 'processing' });
-  const cleaned = await pricedResponse(job, notify, {
-    ...config,
-    prompt: cleaningPrompt(cleaningPath, sourceName, prepared.assetNote),
-    sources: prepared.sources,
-    signal: job.abortController.signal,
-  });
-  assertNotCancelled(job);
-  const proposed = stripFence(cleaned.text);
-
-  update(job, notify, { stage: `Auditing ${sourceName}`, status: 'auditing' });
-  const audited = await pricedResponse(job, notify, {
-    ...config,
-    prompt: auditPrompt(cleaningPath, sourceName, proposed, prepared.assetNote),
-    sources: prepared.sources,
-    schema: auditSchema,
-    schemaName: 'fidelity_audit',
-    signal: job.abortController.signal,
-  });
-  const audit = audited.json;
-  const finalMarkdown = stripFence(audit.final_markdown || proposed);
-  const filename = markdownFilename(cleaningPath, sourceName, finalMarkdown);
-  const destination = path.join(outputDirectory, filename);
-  await writeTextAtomic(destination, `${finalMarkdown.trim()}\n`);
-  return {
-    result: resultFor(sourceName, audit.status, [filename, ...prepared.assetPaths.map((item) => path.relative(outputDirectory, item))], audit.uncertainty_summary),
-    auditNotes: audit.audit_notes,
-  };
-}
-
-async function cleanNewsArticle({ job, notify, source, sourceName, outputDirectory, config }) {
   const sourceBytes = await fileSize(source);
-  const maxOutputTokens = Math.max(12_000, Math.min(48_000, Math.ceil(sourceBytes / 3) + 3_000));
+  const maxOutputTokens = adaptiveOutputLimit(cleaningPath, sourceBytes);
   update(job, notify, { stage: `Cleaning and checking ${sourceName}`, status: 'processing' });
   const first = await pricedResponse(job, notify, {
     ...config,
     reasoningEffort: 'medium',
     maxOutputTokens,
-    prompt: fastArticlePrompt(sourceName),
-    sources: [source],
-    schema: fastArticleSchema,
-    schemaName: 'clean_news_article',
+    prompt: adaptiveCleaningPrompt(cleaningPath, sourceName, prepared.assetNote),
+    sources: prepared.sources,
+    schema: adaptiveCleaningSchema,
+    schemaName: `clean_${cleaningPath}`,
     signal: job.abortController.signal,
   });
   let review = first.json;
   const firstRiskReason = review.risk_reason;
-  const requiresAudit = shouldAuditNews(review);
+  const requiresAudit = shouldRunAdaptiveAudit(review);
   let auditNotes = review.audit_notes;
   if (requiresAudit) {
     assertNotCancelled(job);
@@ -193,20 +168,20 @@ async function cleanNewsArticle({ job, notify, source, sourceName, outputDirecto
       ...config,
       reasoningEffort: config.reasoningEffort === 'medium' ? 'high' : config.reasoningEffort,
       maxOutputTokens,
-      prompt: auditPrompt('news_articles', sourceName, stripFence(review.final_markdown)),
-      sources: [source],
+      prompt: auditPrompt(cleaningPath, sourceName, stripFence(review.final_markdown), prepared.assetNote),
+      sources: prepared.sources,
       schema: auditSchema,
-      schemaName: 'news_article_risk_audit',
+      schemaName: `${cleaningPath}_risk_audit`,
       signal: job.abortController.signal,
     });
     review = audited.json;
     auditNotes = `${auditNotes || ''}${auditNotes ? ' ' : ''}Second audit: ${audited.json.audit_notes || firstRiskReason || 'Triggered by first-pass risk.'}`;
   }
   const finalMarkdown = stripFence(review.final_markdown);
-  const filename = markdownFilename('news_articles', sourceName, finalMarkdown);
+  const filename = markdownFilename(cleaningPath, sourceName, finalMarkdown);
   await writeTextAtomic(path.join(outputDirectory, filename), `${finalMarkdown.trim()}\n`);
   return {
-    result: resultFor(sourceName, review.status, [filename], review.uncertainty_summary),
+    result: resultFor(sourceName, review.status, [filename, ...prepared.assetPaths.map((item) => path.relative(outputDirectory, item))], review.uncertainty_summary),
     auditNotes,
   };
 }
@@ -510,4 +485,4 @@ export async function processJob({ job, files, config, toolkit, notify }) {
   return destination;
 }
 
-export const testables = { stripFence, normalizedDate, markdownFilename, shouldAuditNews, validateManifest, safeFilename };
+export const testables = { adaptiveOutputLimit, stripFence, normalizedDate, markdownFilename, shouldRunAdaptiveAudit, validateManifest, safeFilename };

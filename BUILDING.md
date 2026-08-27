@@ -25,7 +25,7 @@ The build script:
 5. installs production-only Node dependencies into the app bundle;
 6. creates the icon, property list, static interface, runtime, and native binaries;
 7. applies an ad-hoc signature;
-8. creates `outputs/Document Cleaner 1.1.app.zip`;
+8. creates `outputs/Document Cleaner 1.2.app.zip`;
 9. extracts and verifies the distributable's signature, plist, JavaScript syntax, and executable architectures; and
 10. prints the SHA-256 checksum.
 
