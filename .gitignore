@@ -1,0 +1,8 @@
+node_modules/
+dist/
+outputs/
+native/dist/
+native/DocumentCleanerLauncher
+native/DocumentToolkit
+.DS_Store
+*.log

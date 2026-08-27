@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleDevelopmentRegion</key><string>en</string>
+  <key>CFBundleDisplayName</key><string>Document Cleaner</string>
+  <key>CFBundleExecutable</key><string>DocumentCleanerLauncher</string>
+  <key>CFBundleIconFile</key><string>DocumentCleaner</string>
+  <key>CFBundleIdentifier</key><string>com.ecanedo.documentcleaner.v10</string>
+  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+  <key>CFBundleName</key><string>Document Cleaner</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>1.0</string>
+  <key>CFBundleVersion</key><string>10</string>
+  <key>LSArchitecturePriority</key><array><string>arm64</string></array>
+  <key>LSMinimumSystemVersion</key><string>12.0</string>
+  <key>LSMultipleInstancesProhibited</key><true/>
+  <key>LSUIElement</key><true/>
+  <key>NSDownloadsFolderUsageDescription</key><string>Document Cleaner saves cleaned documents and preserved archival sources into Downloads.</string>
+  <key>NSHumanReadableCopyright</key><string>Local source-faithful document restoration.</string>
+  <key>NSHighResolutionCapable</key><true/>
+</dict>
+</plist>
